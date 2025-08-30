@@ -162,33 +162,30 @@ ninv:
 .move_x_to_rbx_bitwise:
     mov  rcx, r11                   ; rcx = number of bits to shift
     test rcx, rcx                   
-    jz .after_bit_shift           ; if rcx = 0, there's no need to shift anything
-    mov  r14, rdx                   
-    shr  r14, 6                     ; r14 = n/64
+    jz .after_bit_shift             ; if rcx = 0, there's no need to shift anything
+    shr rdx, 6                      ; rdx = n/64 (we'll shift it left later)
 
     xor  r15, r15                   ; r15 = 0 (counter)
     mov  rax, [rbx + r15*8]         ; rax = word from rbx
     shl  rax, cl                    ; shift left rax
     mov  [rbx + r15*8], rax         ; set a word from rbx to rax
     inc  r15                        ; r15++
-
 .shift_left_loop:
-    cmp  r15, r14
-    jae  .after_bit_shift
-    mov  rdx, [rbx + r15*8]        ; dest
-    mov  rax, [rbx + (r15-1)*8]    ; prev
-    shl  rdx, cl                   ; dest <<= k
+    cmp  r15, rdx                   ; compare r15 and rdx
+    jae  .after_bit_shift           ; if r15 >= rdx finish shifting
+    mov  r14, [rbx + r15*8]         ; destination
+    mov  rax, [rbx + (r15-1)*8]     ; previous
+    shl  r14, cl                    ; dest <<= k
+    mov  r9, 64                     ; r9 = 64
+    sub  r9, rcx                    ; r9 = 64 - k
+    mov  r10, rax                   ; r10
+    mov  ecx, r9d                   ; load into ecx so cl = (64-k)
+    shr  r10, cl                    ; prev >> (64-k)
 
-    mov  r8, 64
-    sub  r8, rcx                   ; r8 = 64 - k
-    mov  r10, rax
-    mov  ecx, r8d                  ; load into ecx so cl = (64-k)
-    shr  r10, cl                   ; prev >> (64-k)
+    or   r14, r10
+    mov  [rbx + r15*8], r14
 
-    or   rdx, r10
-    mov  [rbx + r15*8], rdx
-
-    mov  rcx, r11                  ; restore k
+    mov  rcx, r11                   ; restore k
     inc  r15
     jmp  .shift_left_loop
 
@@ -196,9 +193,9 @@ ninv:
 
 ; -------- set r12 := rbx and r13 := rbx --------
 .continue_building_y:
-    mov  r15, rdx
-    shr  r15, 6                    ; m
-    xor  r14, r14
+    mov  r15, rdx                   ; r15 = n/64
+    shl rdx, 6                      ; rdx = n
+    xor  r14, r14                   ; r14 = 0
 .copy_rbx_to_r12_r13:
     cmp  r14, r15
     jae  .build_loop
@@ -212,9 +209,9 @@ ninv:
 ;      MAIN LOOP TO BUILD Y
 ; ===============================================
 .build_loop:
-    mov  r15, rdx
-    shr  r15, 6                    ; m
-    xor  r14, r14
+    mov  r15, rdx                   ; r15 = n
+    shr  r15, 6                     ; r15 = n/64
+    xor  r14, r14                   ; r14 = 0
 
 .change_bit:
     dec  r11
@@ -265,7 +262,6 @@ ninv:
     mov  rcx, r11
     shl  rax, cl
     add  [rdi + 8*r8], rax
-
     mov  r14, r15
 .copy_rbx_to_r13:
     dec  r14
