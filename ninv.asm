@@ -35,155 +35,142 @@ ninv:
     ; find first significant bit of x
     ; ----------------------------------------
     mov  r8, rdx
-    shr  r8, 6            ; m = n/64
-    mov  r15, r8
-    xor  r9, r9
+    shr  r8, 6                      ; r8 = n/64
+    mov  r15, r8                    ; r15 = n/64
+    xor  r9, r9                     ; r9 = 0
 
 .find_loop:
-    dec  r15
-    mov  rax, [rsi + r15*8]
-    test rax, rax
-    jnz  .found
-    cmp  r15, 0
-    jne  .find_loop
-    jmp  .done
+    dec  r15                        ; r15--
+    mov  rax, [rsi + r15*8]         ; load qword from x array
+    test rax, rax                   ; check if the loaded value is 0
+    jnz  .found                     ; if it's not, jump to .found
+    cmp  r15, 0                     ; check if r15 = 0
+    jne  .find_loop                 ; if it's not 0, repeat
 
 ; ==================================================
 ;              power-of-two detection
 ; ==================================================
 .found:
-    bsr  r10, rax                 ; r10 = bit index in the word (0..63)
-    mov  r9, r15                  ; r9  = word index
+    bsr  r10, rax                   ; r10 = bit index in the word (0..63)
+    mov  r9, r15                    ; r9  = word index
 
     ; Check if this word is a power of two
-    mov  r11, rax
-    dec  r11
-    test rax, r11
-    jnz  .x_is_not_a_power_of_2   ; more than one bit in this word
+    mov  r11, rax                   ; r11 = rax
+    dec  r11                        ; r11 = rax - 1
+    test rax, r11                   
+    jnz  .x_is_not_a_power_of_2     ; more than one bit in this word
 
     ; Ensure all lower words are zero
-    xor  r11, r11
+    xor  r11, r11                   ; r11 = 0 (counter)
 .check_lower_words:
-    cmp  r11, r9
-    jae  .x_is_a_power_of_2
-    mov  rdx, [rsi + r11*8]
-    test rdx, rdx
-    jnz  .x_is_not_a_power_of_2
-    inc  r11
-    jmp  .check_lower_words
+    cmp  r11, r9                    ; compare word index and r11
+    jae  .x_is_a_power_of_2         ; if there are no more words to check, x is a power of 2   
+    mov  rax, [rsi + r11*8]         ; rax = word from x
+    test rax, rax                   ; check if rax = 0
+    jnz  .x_is_not_a_power_of_2     ; if no, x is not a power of 2
+    inc  r11                        
+    jmp  .check_lower_words         ; if rax = 0, repeat 
 
+; ==================================================
+;               x is a power of 2
+; ==================================================
 .x_is_a_power_of_2:
-    mov r8, rdx
-    mov r11, r9
-    shl r11, 6                    ; r11 = w*64
-    sub r8, r11                   ; r8 = m*64 - w*64
-    mov r11, r10                  ; r11 = b
-    sub r8, r11                   ; r8 = m*64 - w*64 - b
-    mov r11, r8
-    shr r8, 6                     ; r8 = word index in y
-    shl r8, 6
-    sub r11, r8                   ; r11 = bit index in y
+    mov r8, rdx                     ; r8 = n
+    mov r11, r9                     ; r11 = word index of x = w
+    shl r11, 6                      ; r11 = (word index of x)*64
+    sub r8, r11                     ; r8 = n - w*64
+    mov r11, r10                    ; r11 = bit index = b
+    sub r8, r11                     ; r8 = n - w*64 - b
+    mov r11, r8                     ; r11 = r8
+    shr r8, 6                       ; r8 = word index in y
+    shl r8, 6                       
+    sub r11, r8                     ; r11 = bit index in y
     shr r8, 6
-
     ; zero y first
-    mov  r15, rdx
-    shr  r15, 6
-    xor  r14, r14
+    mov r15, rdx                    ; r15 = n
+    shr r15, 6                      ; r15 = n/64
+    xor r14, r14                    ; r14 = 0 (counter)
 .zero_y_power2:
-    cmp  r14, r15
-    jae  .after_zero_y_power2
-    mov  qword [rdi + r14*8], 0
-    inc  r14
-    jmp  .zero_y_power2
-
+    cmp  r14, r15                   ; compare r14 and r15
+    jae  .after_zero_y_power2       ; if r14 >= r15, end the loop
+    mov  qword [rdi + r14*8], 0     ; zero a word in y
+    inc  r14                        ; r14++
+    jmp  .zero_y_power2             ; repeat
 .after_zero_y_power2:
-    mov rax, 1
-    mov rcx, r11
-    shl rax, cl
-    mov [rdi + 8*r8], rax         ; y = single bit
-    jmp .finish
+    mov rax, 1                      ; rax = 1
+    mov rcx, r11                    ; rcx = bit index 
+    shl rax, cl                     ; shift 1 left by the bit index 
+    mov [rdi + 8*r8], rax           ; y = single bit
+    jmp .finish                     ; there's no need to do anything else, so we finish
 
 .x_is_not_a_power_of_2:
-    mov  r8, rdx                  ; n
-    mov  r11, r9
-    shl  r11, 6
-    add  r11, r10                 ; a = w*64 + b
-    sub  r8, r11
-    dec  r8                       ; n - a - 1
-
+    mov  r8, rdx                    ; r8 = n
+    mov  r11, r9                    ; r11 = x word index = w
+    shl  r11, 6                     ; r11 = w*64
+    add  r11, r10                   ; a = w*64 + b
+    sub  r8, r11                    ; r8 = n - a
+    dec  r8                         ; n - a - 1
     ; compute (word, bit) directly
-    mov  r11, r8
-    mov  rax, r11
-    shr  rax, 6                   ; word = (n-a-1)/64
-    mov  r8, rax
-    and  r11, 63                  ; bit  = (n-a-1) % 64
-
+    mov  r11, r8                    ; r11 = n - a - 1
+    mov  rax, r11                   ; rax = n - a - 1
+    shr  rax, 6                     ; word = (n-a-1)/64
+    mov  r8, rax                    ; r8 = rax
+    and  r11, 63                    ; bit  = (n-a-1) % 64
     ; zero y first
-    mov  r15, rdx
-    shr  r15, 6
-    xor  r14, r14
-.zero_y:
-    cmp  r14, r15
-    jae  .after_zero_y
-    mov  qword [rdi + r14*8], 0
-    inc  r14
-    jmp  .zero_y
+    mov  r15, rdx                   ; r15 = n
+    shr  r15, 6                     ; r15 = n/64
+    xor  r14, r14                   ; r14 = 0
+.zero_y:                            
+    cmp  r14, r15                   ; compare r14 and r15
+    jae  .after_zero_y              ; if r14 >= r15, end the loop
+    mov  qword [rdi + r14*8], 0     ; set a word in y to 0
+    inc  r14                        ; r14++
+    jmp  .zero_y                    ; continue the loop
 .after_zero_y:
-
-    mov  rax, 1
-    mov  rcx, r11
-    shl  rax, cl
-    mov  [rdi + 8*r8], rax        ; seed y with first bit
-    jmp  .build_y                 ; continue building
+    mov  rax, 1                     ; rax = 1
+    mov  rcx, r11                   
+    shl  rax, cl                    ; shift rax
+    mov  [rdi + 8*r8], rax          ; seed y with first bit
+    jmp  .build_y                   ; continue building
 
 ; ===============================================
 ;      PREP FOR BUILDING THE REST OF Y
 ; ===============================================
 .build_y:
-    mov  r15, rdx
-    shr  r15, 6                ; m
-
-    ; -------- zero tmp (rbx) --------
-    xor  r14, r14
-.zero_rbx:
-    cmp  r14, r15
-    jae  .after_zero_rbx
-    mov  qword [rbx + r14*8], 0
-    inc  r14
-    jmp  .zero_rbx
+    mov  r15, rdx                   
+    shr  r15, 6                     ; r15 = n/64
+    xor  r14, r14                   ; r14 = 0
+.zero_rbx: 
+    cmp  r14, r15                   ; compare r14 and r15
+    jae  .after_zero_rbx            ; if r14 >= r15, end the loop
+    mov  qword [rbx + r14*8], 0     ; zero a word in rbx
+    inc  r14                        ; r14++
+    jmp  .zero_rbx                  ; repeat the loop
 .after_zero_rbx:
-
-    ; r15 = index of first significant x word
-    mov  r15, r9
-    ; r14 = m-1 (top index in tmp)
+    mov  r15, r9                    ; r15 = index of first significant x word
     mov  r14, rdx
-    shr  r14, 6
-    dec  r14
+    shr  r14, 6                 
+    dec  r14                        ; r14 = m-1 (top index in tmp)
 
 .move_x_to_rbx_wordwise:
-    mov  rax, qword [rsi + 8*r15]
-    mov  qword [rbx + 8*r14], rax
+    mov  rax, qword [rsi + 8*r15]   ; rax = word in rsi
+    mov  qword [rbx + 8*r14], rax   ; word in rbx = word in rsi
     dec  r14
     dec  r15
-    js   .move_x_to_rbx_bitwise
-    jmp  .move_x_to_rbx_wordwise
-
-; -------- shift tmp left by r11 bits (0..63) --------
+    js   .move_x_to_rbx_bitwise     ; if r15 < 0 move on to shifting rbx bitwise
+    jmp  .move_x_to_rbx_wordwise    ; repeat the loop
 .move_x_to_rbx_bitwise:
-    mov  rcx, r11
-    test rcx, rcx
-    jz   .after_bit_shift
+    mov  rcx, r11                   ; rcx = number of bits to shift
+    test rcx, rcx                   
+    jz .after_bit_shift           ; if rcx = 0, there's no need to shift anything
+    mov  r14, rdx                   
+    shr  r14, 6                     ; r14 = n/64
 
-    mov  r14, rdx
-    shr  r14, 6                ; m
-    test r14, r14
-    jz   .after_bit_shift
-
-    xor  r15, r15              ; i = 0
-    mov  rax, [rbx + r15*8]
-    shl  rax, cl
-    mov  [rbx + r15*8], rax
-    inc  r15
+    xor  r15, r15                   ; r15 = 0 (counter)
+    mov  rax, [rbx + r15*8]         ; rax = word from rbx
+    shl  rax, cl                    ; shift left rax
+    mov  [rbx + r15*8], rax         ; set a word from rbx to rax
+    inc  r15                        ; r15++
 
 .shift_left_loop:
     cmp  r15, r14
