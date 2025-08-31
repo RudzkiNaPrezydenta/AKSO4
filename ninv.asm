@@ -165,27 +165,25 @@ ninv:
     jz .after_bit_shift             ; if rcx = 0, there's no need to shift anything
     shr rdx, 6                      ; rdx = n/64 (we'll shift it left later)
 
-    xor  r15, r15                   ; r15 = 0 (counter)
-    mov  rax, [rbx + r15*8]         ; rax = word from rbx
-    shl  rax, cl                    ; shift left rax
-    mov  [rbx + r15*8], rax         ; set a word from rbx to rax
-    inc  r15                        ; r15++
+    mov  rax, [rbx]                 ; rax = least significant word from rbx
+    shl  rax, cl                    ; shift word left 
+    mov  [rbx], rax                 ; set a word from rbx to rax
+    mov  r15, 1                     ; r15 = 1
 .shift_left_loop:
     cmp  r15, rdx                   ; compare r15 and rdx
     jae  .after_bit_shift           ; if r15 >= rdx finish shifting
     mov  r14, [rbx + r15*8]         ; destination
-    mov  rax, [rbx + (r15-1)*8]     ; previous
+    mov  rax, [rbx + (r15-1)*8]     ; previous 
+    mov  rcx, r11
     shl  r14, cl                    ; dest <<= k
     mov  r9, 64                     ; r9 = 64
-    sub  r9, rcx                    ; r9 = 64 - k
-    mov  r10, rax                   ; r10
+    sub  r9, r11                    ; r9 = 64 - k
     mov  ecx, r9d                   ; load into ecx so cl = (64-k)
-    shr  r10, cl                    ; prev >> (64-k)
+    shr  rax, cl                    ; prev >> (64-k)
 
-    or   r14, r10
+    or   r14, rax
     mov  [rbx + r15*8], r14
 
-    mov  rcx, r11                   ; restore k
     inc  r15
     jmp  .shift_left_loop
 
@@ -197,16 +195,16 @@ ninv:
     shl rdx, 6                      ; rdx = n
     xor  r14, r14                   ; r14 = 0
 .copy_rbx_to_r12_r13:
-    cmp  r14, r15
-    jae  .build_loop
-    mov  rax, qword [rbx + r14*8]
-    mov  qword [r12 + r14*8], rax
-    mov  qword [r13 + r14*8], rax
-    inc  r14
+    cmp  r14, r15                   ; compare r14 and r15
+    jae  .build_loop                ; if r14 >= r15, finish loop
+    mov  rax, qword [rbx + r14*8]   ; rax = [rbx + r14*8]
+    mov  qword [r12 + r14*8], rax   ; set word in r12 to rax
+    mov  qword [r13 + r14*8], rax   ; set word in r13 to rax
+    inc  r14                        
     jmp  .copy_rbx_to_r12_r13
 
 ; ===============================================
-;      MAIN LOOP TO BUILD Y
+;              MAIN LOOP TO BUILD Y
 ; ===============================================
 .build_loop:
     mov  r15, rdx                   ; r15 = n
@@ -215,7 +213,7 @@ ninv:
 
 .change_bit:
     dec  r11
-    jns  .build_loop
+    jns  .shift_r12_right_by_1
     mov  r11, 0x3F
     dec  r8
     js   .finish
@@ -235,21 +233,28 @@ ninv:
 
 ; -------- add r12 into rbx with carry --------
 .add_r12_to_rbx:
+    xor r14, r14                   ; r14 = 0
+    dec r15
     clc
-    xor  r14, r14
-.add_loop:
-    cmp  r14, r15
-    jae  .check_if_carry
+
+.add_loop:                          
+    cmp  r14, r15                        
+    jae  .last_iteration        
     mov  rax, [r12 + r14*8]
     adc  qword [rbx + r14*8], rax
     inc  r14
     jmp  .add_loop
 
+.last_iteration:
+    inc r15
+    mov  rax, [r12 + r14*8]
+    adc  qword [rbx + r14*8], rax
+
 .check_if_carry:
     jnc  .no_carry_happened
-
     ; carry happened → restore rbx = r13
     mov  r14, r15
+
 .carry_copy_back:
     dec  r14
     mov  rax, [r13 + r14*8]
